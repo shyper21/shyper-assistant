@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Head from 'next/head'
 
-const WAKE_WORDS = ['jarvis', 'hey jarvis', 'jarves', 'jarves']
+const WAKE_WORDS = ['jarvis', 'jarves', 'jarbes']
 const LANG = 'id-ID'
 
 export default function Jarvis() {
@@ -16,6 +16,7 @@ export default function Jarvis() {
   const [command, setCommand] = useState('')
   const [response, setResponse] = useState('')
   const awakeRef = useRef(false)
+  const commandTimerRef = useRef(null)
 
   const speak = useCallback((text) => {
     if (!window.speechSynthesis) return
@@ -30,6 +31,7 @@ export default function Jarvis() {
   }, [])
 
   const askJarvis = useCallback(async (cmd) => {
+    if (!cmd || cmd.trim().length < 2) return
     setStatus('thinking')
     setCommand(cmd)
     try {
@@ -71,24 +73,46 @@ export default function Jarvis() {
         if (e.results[i].isFinal) final = t
         else interim = t
       }
+
       const heard = final || interim
       setLiveText(heard)
 
-      if (!awakeRef.current && WAKE_WORDS.some(w => heard.includes(w))) {
-        awakeRef.current = true
-        setStatus('awake')
-        setResponse('')
-        setCommand('')
-        window.speechSynthesis?.cancel()
-        const wake = new SpeechSynthesisUtterance('Ya, ada yang bisa saya bantu?')
-        wake.lang = LANG
-        wake.pitch = 0.85
-        window.speechSynthesis.speak(wake)
+      // Cek apakah ada wake word
+      const foundWake = WAKE_WORDS.find(w => heard.includes(w))
+
+      if (foundWake) {
+        // Ambil bagian SETELAH wake word sebagai perintah langsung
+        const afterWake = heard.split(foundWake).pop().trim()
+
+        if (afterWake && afterWake.length > 2) {
+          // "Jarvis siapa kamu" → langsung proses "siapa kamu"
+          awakeRef.current = false
+          if (commandTimerRef.current) clearTimeout(commandTimerRef.current)
+          askJarvis(afterWake)
+        } else {
+          // Hanya "Jarvis" saja → aktifkan mode tunggu
+          awakeRef.current = true
+          setStatus('awake')
+          setResponse('')
+          setCommand('')
+          window.speechSynthesis?.cancel()
+
+          // Beri waktu 3 detik untuk ucapkan perintah
+          if (commandTimerRef.current) clearTimeout(commandTimerRef.current)
+          commandTimerRef.current = setTimeout(() => {
+            if (awakeRef.current) {
+              awakeRef.current = false
+              setStatus('listening')
+            }
+          }, 5000)
+        }
         return
       }
 
-      if (awakeRef.current && final && !WAKE_WORDS.some(w => final.includes(w))) {
+      // Kalau sudah awake dan ada kalimat final → proses sebagai perintah
+      if (awakeRef.current && final) {
         awakeRef.current = false
+        if (commandTimerRef.current) clearTimeout(commandTimerRef.current)
         askJarvis(final)
       }
     }
@@ -102,7 +126,10 @@ export default function Jarvis() {
     }
 
     recognition.start()
-    return () => { try { recognition.stop() } catch {} }
+    return () => {
+      try { recognition.stop() } catch {}
+      if (commandTimerRef.current) clearTimeout(commandTimerRef.current)
+    }
   }, [askJarvis])
 
   const statusConfig = {
@@ -156,10 +183,12 @@ export default function Jarvis() {
           </div>
 
           {status === 'listening' && (
-            <p className="hint">Ucapkan <strong>"Jarvis"</strong> untuk mengaktifkan</p>
+            <p className="hint">
+              Ucap <strong>"Jarvis"</strong> atau <strong>"Jarvis [perintah]"</strong> langsung
+            </p>
           )}
           {status === 'awake' && (
-            <p className="hint active">Jarvis aktif — ucapkan perintahmu</p>
+            <p className="hint active">Jarvis siap — ucapkan perintahmu sekarang</p>
           )}
 
           {command && (
@@ -193,7 +222,7 @@ export default function Jarvis() {
 
       <style jsx>{`
         .root { min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:24px 20px 16px; position:relative; }
-        .bg-grid { position:fixed; inset:0; z-index:0; background-image: linear-gradient(rgba(106,90,205,0.05) 1px,transparent 1px), linear-gradient(90deg,rgba(106,90,205,0.05) 1px,transparent 1px); background-size:40px 40px; }
+        .bg-grid { position:fixed; inset:0; z-index:0; background-image:linear-gradient(rgba(106,90,205,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(106,90,205,0.05) 1px,transparent 1px); background-size:40px 40px; }
         .vignette { position:fixed; inset:0; z-index:0; background:radial-gradient(ellipse at center,transparent 20%,#05030f 75%); }
         header { position:relative; z-index:1; display:flex; flex-direction:column; align-items:center; gap:4px; margin-bottom:28px; }
         .title { font-family:'Cinzel',serif; font-size:2.2rem; font-weight:700; letter-spacing:0.25em; background:linear-gradient(135deg,#c77dff,#6a5acd,#e0aaff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
@@ -216,7 +245,7 @@ export default function Jarvis() {
         .live-text { font-size:1rem; color:#a898d8; line-height:1.5; min-height:24px; font-style:italic; }
         .hint { font-size:0.85rem; color:#6a5acd; text-align:center; }
         .hint strong { color:#c77dff; }
-        .hint.active { color:#c77dff; }
+        .hint.active { color:#c77dff; font-weight:600; }
         .bubble { width:100%; border-radius:12px; padding:14px 18px; }
         .you-bubble { background:rgba(106,90,205,0.1); border:1px solid rgba(106,90,205,0.3); }
         .ai-bubble { background:rgba(157,78,221,0.08); border:1px solid rgba(157,78,221,0.25); }
