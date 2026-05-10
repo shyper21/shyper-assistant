@@ -18,6 +18,7 @@ export default function Home() {
   const [liveText, setLiveText] = useState('')
   const [command, setCommand] = useState('')
   const [response, setResponse] = useState('')
+  const [textInput, setTextInput] = useState('')
 
   const awakeRef = useRef(false)
   const commandTimerRef = useRef(null)
@@ -40,14 +41,25 @@ export default function Home() {
   }, [])
 
   const speak = useCallback((text) => {
-    if (!window.speechSynthesis) return
+    setStatus('speaking')
+
+    // Android WebView bridge — delegate to native TTS to fix no-sound in WebView
+    if (window.AndroidBridge?.speak) {
+      window.AndroidBridge.speak(text)
+      // No onend callback from Android; estimate duration then return to idle
+      const ms = Math.max(1500, text.length * 55)
+      setTimeout(() => { setStatus('idle'); awakeRef.current = false }, ms)
+      return
+    }
+
+    // Browser TTS fallback
+    if (!window.speechSynthesis) { setStatus('idle'); return }
     window.speechSynthesis.cancel()
     const utt = new SpeechSynthesisUtterance(text)
     utt.lang = LANG
     utt.rate = 1.0
     utt.pitch = 0.8
     if (voiceRef.current) utt.voice = voiceRef.current
-    utt.onstart = () => setStatus('speaking')
     utt.onend = () => { setStatus('listening'); awakeRef.current = false }
     window.speechSynthesis.speak(utt)
   }, [])
@@ -82,6 +94,14 @@ export default function Home() {
       speak(err)
     }
   }, [speak])
+
+  const handleTextSubmit = useCallback((e) => {
+    e.preventDefault()
+    const cmd = textInput.trim()
+    if (!cmd) return
+    setTextInput('')
+    askJarvis(cmd)
+  }, [textInput, askJarvis])
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
@@ -234,6 +254,25 @@ export default function Home() {
               <p>Gunakan <strong>Chrome</strong> di Android dan izinkan akses mikrofon.</p>
             </div>
           )}
+
+          <form className="text-form" onSubmit={handleTextSubmit}>
+            <input
+              className="text-input"
+              type="text"
+              value={textInput}
+              onChange={e => setTextInput(e.target.value)}
+              placeholder="Ketik pesan ke Jarvis..."
+              disabled={status === 'thinking' || status === 'speaking'}
+              autoComplete="off"
+            />
+            <button
+              className="text-send"
+              type="submit"
+              disabled={!textInput.trim() || status === 'thinking' || status === 'speaking'}
+            >
+              ➤
+            </button>
+          </form>
         </main>
 
         <footer>Powered by Groq · Jarvis AI</footer>
@@ -267,6 +306,14 @@ export default function Home() {
         .blabel { font-size:0.58rem; letter-spacing:0.2em; font-weight:600; color:#9d4edd; display:block; margin-bottom:6px; }
         .bubble p { font-size:0.95rem; line-height:1.65; color:#d0c4f4; }
         footer { position:relative; z-index:1; margin-top:20px; font-size:0.6rem; color:#2a2245; letter-spacing:0.1em; text-transform:uppercase; }
+        .text-form { width:100%; display:flex; gap:10px; align-items:center; margin-top:4px; }
+        .text-input { flex:1; background:rgba(20,10,40,0.85); border:1px solid rgba(106,90,205,0.35); border-radius:10px; padding:12px 14px; color:#e0d7ff; font-family:'Rajdhani',sans-serif; font-size:0.95rem; outline:none; transition:border-color 0.3s; }
+        .text-input::placeholder { color:#4a3d7a; }
+        .text-input:focus { border-color:#9d4edd; }
+        .text-input:disabled { opacity:0.45; }
+        .text-send { background:linear-gradient(135deg,#6a5acd,#9d4edd); border:none; border-radius:10px; padding:12px 18px; color:#fff; font-size:1.1rem; cursor:pointer; transition:opacity 0.25s; flex-shrink:0; }
+        .text-send:disabled { opacity:0.35; cursor:not-allowed; }
+        .text-send:not(:disabled):active { opacity:0.75; }
       `}</style>
     </>
   )
