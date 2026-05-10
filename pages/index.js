@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Head from 'next/head'
+import JarvisAvatar from '../components/JarvisAvatar'
 
-const WAKE_WORDS = ['jarvis', 'jarves', 'jarbes']
+// Longest phrases first so "hey jarvis" matches before "jarvis"
+const WAKE_WORDS = ['hey jarvis', 'hei jarvis', 'hai jarvis', 'jarvis', 'jarves', 'jarbes']
 const LANG = 'id-ID'
+const MAX_HISTORY = 20  // max messages kept in session memory
 
-export default function Jarvis() {
+export default function Home() {
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {})
@@ -15,8 +18,26 @@ export default function Jarvis() {
   const [liveText, setLiveText] = useState('')
   const [command, setCommand] = useState('')
   const [response, setResponse] = useState('')
+
   const awakeRef = useRef(false)
   const commandTimerRef = useRef(null)
+  const messagesRef = useRef([])   // session memory across turns
+  const voiceRef = useRef(null)    // preferred Indonesian male voice
+
+  // Load preferred voice — prefer Indonesian male
+  useEffect(() => {
+    if (!window.speechSynthesis) return
+    const pickVoice = () => {
+      const voices = window.speechSynthesis.getVoices()
+      voiceRef.current =
+        voices.find(v => v.lang.startsWith('id') && /male|pria|man/i.test(v.name)) ||
+        voices.find(v => v.lang === 'id-ID') ||
+        voices.find(v => v.lang.startsWith('id')) ||
+        null
+    }
+    pickVoice()
+    window.speechSynthesis.onvoiceschanged = pickVoice
+  }, [])
 
   const speak = useCallback((text) => {
     if (!window.speechSynthesis) return
@@ -24,7 +45,8 @@ export default function Jarvis() {
     const utt = new SpeechSynthesisUtterance(text)
     utt.lang = LANG
     utt.rate = 1.0
-    utt.pitch = 0.85
+    utt.pitch = 0.8
+    if (voiceRef.current) utt.voice = voiceRef.current
     utt.onstart = () => setStatus('speaking')
     utt.onend = () => { setStatus('listening'); awakeRef.current = false }
     window.speechSynthesis.speak(utt)
@@ -34,18 +56,25 @@ export default function Jarvis() {
     if (!cmd || cmd.trim().length < 2) return
     setStatus('thinking')
     setCommand(cmd)
+
+    // Append to session memory
+    const updated = [...messagesRef.current, { role: 'user', content: cmd }]
+    const trimmed = updated.slice(-MAX_HISTORY)
+    messagesRef.current = trimmed
+
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: cmd }],
-          session_id: 'jarvis-web',
-        }),
+        body: JSON.stringify({ messages: trimmed }),
       })
       const data = await res.json()
       const reply = data?.choices?.[0]?.message?.content || 'Maaf, tidak ada respons.'
       setResponse(reply)
+
+      // Store assistant reply in session memory
+      messagesRef.current = [...messagesRef.current, { role: 'assistant', content: reply }]
+
       speak(reply)
     } catch {
       const err = 'Tidak bisa terhubung ke server.'
@@ -77,27 +106,25 @@ export default function Jarvis() {
       const heard = final || interim
       setLiveText(heard)
 
-      // Cek apakah ada wake word
+      // Match longest wake word first
       const foundWake = WAKE_WORDS.find(w => heard.includes(w))
 
       if (foundWake) {
-        // Ambil bagian SETELAH wake word sebagai perintah langsung
         const afterWake = heard.split(foundWake).pop().trim()
 
         if (afterWake && afterWake.length > 2) {
-          // "Jarvis siapa kamu" → langsung proses "siapa kamu"
+          // Inline command: "Hey Jarvis siapa presiden Indonesia"
           awakeRef.current = false
           if (commandTimerRef.current) clearTimeout(commandTimerRef.current)
           askJarvis(afterWake)
         } else {
-          // Hanya "Jarvis" saja → aktifkan mode tunggu
+          // Wake only → enter listening-for-command mode
           awakeRef.current = true
           setStatus('awake')
           setResponse('')
           setCommand('')
           window.speechSynthesis?.cancel()
 
-          // Beri waktu 3 detik untuk ucapkan perintah
           if (commandTimerRef.current) clearTimeout(commandTimerRef.current)
           commandTimerRef.current = setTimeout(() => {
             if (awakeRef.current) {
@@ -109,7 +136,7 @@ export default function Jarvis() {
         return
       }
 
-      // Kalau sudah awake dan ada kalimat final → proses sebagai perintah
+      // Already awake and got a final utterance → treat as command
       if (awakeRef.current && final) {
         awakeRef.current = false
         if (commandTimerRef.current) clearTimeout(commandTimerRef.current)
@@ -142,6 +169,12 @@ export default function Jarvis() {
   }
   const s = statusConfig[status] || statusConfig.idle
 
+  // Map internal status to avatar states
+  const avatarState =
+    status === 'thinking'    ? 'processing' :
+    status === 'awake'       ? 'listening'  :
+    status === 'unsupported' ? 'idle'       : status
+
   return (
     <>
       <Head>
@@ -161,16 +194,7 @@ export default function Jarvis() {
         </header>
 
         <main>
-          <div className={`orb-wrap ${s.pulse ? 'pulsing' : ''}`}>
-            <div className="ring r3" /><div className="ring r2" /><div className="ring r1" />
-            <div className="orb" style={{ boxShadow: `0 0 50px ${s.color}88, 0 0 100px ${s.color}33` }}>
-              <svg viewBox="0 0 80 80" width="56" height="56" fill="none">
-                <circle cx="40" cy="28" r="14" stroke={s.color} strokeWidth="1.5"/>
-                <path d="M18 68c0-12.15 9.85-22 22-22s22 9.85 22 22" stroke={s.color} strokeWidth="1.5" strokeLinecap="round"/>
-                <circle cx="40" cy="28" r="6" fill={s.color} opacity="0.4"/>
-              </svg>
-            </div>
-          </div>
+          <JarvisAvatar state={avatarState} />
 
           <div className="badge" style={{ borderColor: s.color, color: s.color }}>
             {s.pulse && <span className="dot" style={{ background: s.color }} />}
@@ -184,7 +208,7 @@ export default function Jarvis() {
 
           {status === 'listening' && (
             <p className="hint">
-              Ucap <strong>"Jarvis"</strong> atau <strong>"Jarvis [perintah]"</strong> langsung
+              Ucap <strong>&ldquo;Hey Jarvis&rdquo;</strong> atau <strong>&ldquo;Hey Jarvis [perintah]&rdquo;</strong>
             </p>
           )}
           {status === 'awake' && (
@@ -212,7 +236,7 @@ export default function Jarvis() {
           )}
         </main>
 
-        <footer>Powered by Nanobot · Gemini · Railway</footer>
+        <footer>Powered by Groq · Jarvis AI</footer>
       </div>
 
       <style jsx global>{`
@@ -224,19 +248,10 @@ export default function Jarvis() {
         .root { min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:24px 20px 16px; position:relative; }
         .bg-grid { position:fixed; inset:0; z-index:0; background-image:linear-gradient(rgba(106,90,205,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(106,90,205,0.05) 1px,transparent 1px); background-size:40px 40px; }
         .vignette { position:fixed; inset:0; z-index:0; background:radial-gradient(ellipse at center,transparent 20%,#05030f 75%); }
-        header { position:relative; z-index:1; display:flex; flex-direction:column; align-items:center; gap:4px; margin-bottom:28px; }
+        header { position:relative; z-index:1; display:flex; flex-direction:column; align-items:center; gap:4px; margin-bottom:20px; }
         .title { font-family:'Cinzel',serif; font-size:2.2rem; font-weight:700; letter-spacing:0.25em; background:linear-gradient(135deg,#c77dff,#6a5acd,#e0aaff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
         .subtitle { font-size:0.6rem; letter-spacing:0.22em; color:#4a3d7a; font-weight:300; }
         main { position:relative; z-index:1; display:flex; flex-direction:column; align-items:center; gap:16px; width:100%; max-width:480px; flex:1; }
-        .orb-wrap { position:relative; width:150px; height:150px; display:flex; align-items:center; justify-content:center; }
-        .ring { position:absolute; border-radius:50%; border:1px solid rgba(106,90,205,0.2); animation:spin linear infinite; }
-        .r1 { width:100%; height:100%; animation-duration:8s; border-color:rgba(157,78,221,0.3); }
-        .r2 { width:78%; height:78%; animation-duration:14s; animation-direction:reverse; }
-        .r3 { width:122%; height:122%; animation-duration:22s; }
-        @keyframes spin { to { transform:rotate(360deg); } }
-        .orb { width:105px; height:105px; border-radius:50%; background:radial-gradient(circle at 35% 35%,#1a1035,#05030f); border:1px solid rgba(157,78,221,0.4); display:flex; align-items:center; justify-content:center; transition:box-shadow 0.5s; position:relative; z-index:2; }
-        .pulsing .orb { animation:pulse 2s ease-in-out infinite; }
-        @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.07)} }
         .badge { display:flex; align-items:center; gap:8px; padding:5px 16px; border:1px solid; border-radius:20px; font-size:0.72rem; letter-spacing:0.15em; font-weight:600; text-transform:uppercase; transition:all 0.4s; }
         .dot { width:7px; height:7px; border-radius:50%; animation:blink 1.2s ease-in-out infinite; }
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.15} }
