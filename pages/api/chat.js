@@ -54,12 +54,9 @@ export default async function handler(req, res) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: [
-          { role: 'system', content: ANDROID_SYSTEM },
-          { role: 'user',   content: userMessage },
-        ],
-        session_id: SESSION_ID,
-      }),
+  messages: [{ role: 'user', content: userMessage }],
+  session_id: SESSION_ID,
+}),
     })
 
     if (!response.ok) {
