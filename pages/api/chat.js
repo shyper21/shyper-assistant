@@ -40,14 +40,17 @@ export default async function handler(req, res) {
 
   // ─── Kirim ke Nanobot (memory & history dihandle Nanobot otomatis) ────────
   try {
-    const response = await fetch(`${NANOBOT_URL}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: [{ role: 'user', content: ANDROID_PREFIX + userMessage }],
-        session_id: SESSION_ID,
-      }),
-    })
+    const response = await fetch(`${process.env.HERMES_URL}/v1/chat/completions`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${process.env.HERMES_API_KEY}`
+  },
+  body: JSON.stringify({
+    model: 'default',
+    messages: [{ role: 'user', content: ANDROID_PREFIX + userMessage }]
+  })
+})
 
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}))
