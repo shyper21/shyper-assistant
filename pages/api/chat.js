@@ -1,8 +1,11 @@
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
 
-  const { message } = req.body
-  if (!message) return res.status(400).json({ error: 'No message' })
+  // Jadi (sesuai field yang dikirim frontend, misal userMessage):
+const { userMessage } = req.body
+const userInput = userMessage  // atau field apapun yang ditemukan
+
+if (!userInput) return res.status(400).json({ error: 'No message' })
 
   const ANDROID_PREFIX = '[CMD:YouTube=[OPEN_YOUTUBE:query],Camera=[OPEN_CAMERA],WhatsApp=[OPEN_WHATSAPP],Maps=[OPEN_MAPS:query],Settings=[OPEN_SETTINGS]] '
 
@@ -16,7 +19,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: process.env.OPENROUTER_MODEL || 'deepseek/deepseek-chat',
         messages: [
-          { role: 'user', content: ANDROID_PREFIX + message }
+          { role: 'user', content: ANDROID_PREFIX + userInput  // bukan message lagi }
         ]
       })
     })
