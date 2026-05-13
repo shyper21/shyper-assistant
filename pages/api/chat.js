@@ -19,7 +19,7 @@ if (!userInput) return res.status(400).json({ error: 'No message' })
       body: JSON.stringify({
         model: process.env.OPENROUTER_MODEL || 'deepseek/deepseek-chat',
         messages: [
-          { role: 'user', content: ANDROID_PREFIX + userInput  // bukan message lagi }
+          { role: 'user', content: ANDROID_PREFIX + userInput }
         ]
       })
     })
