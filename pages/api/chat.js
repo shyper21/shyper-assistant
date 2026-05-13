@@ -14,12 +14,9 @@ export default async function handler(req, res) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'deepseek/deepseek-chat',
+        model: process.env.OPENROUTER_MODEL || 'deepseek/deepseek-chat',
         messages: [
-          {
-            role: 'user',
-            content: ANDROID_PREFIX + message
-          }
+          { role: 'user', content: ANDROID_PREFIX + message }
         ]
       })
     })
